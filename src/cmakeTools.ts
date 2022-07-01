@@ -579,22 +579,27 @@ export class CMakeTools implements api.CMakeToolsAPI {
                     const changeSourceDirectory = localize('edit.setting', "Locate");
                     const ignoreActivation = localize('ignore.activation', "Don't show again");
 
-                    let showCMakeLists: boolean = await showCMakeListsExperiment();
+                    let doExperiment: boolean = await showCMakeListsExperiment();
                     const existingCmakeListsFiles: string[] | undefined = await util.getAllCMakeListsPaths(this.folder.uri);
 
-                    telemetryProperties["showCMakeListsExperiment"] = (showCMakeLists).toString();
+                    telemetryProperties["showCMakeListsExperiment"] = (doExperiment).toString();
                     if (existingCmakeListsFiles !== undefined && existingCmakeListsFiles.length > 0) {
                         telemetryProperties["hasCmakeLists"] = "true";
                     } else {
-                        showCMakeLists = false;
+                        doExperiment = false;
                         telemetryProperties["hasCMakeLists"] = "false";
                     }
 
-                    telemetryProperties["missingCMakeListsPopupType"] = showCMakeLists ? "selectFromAllCMakeLists" : "toastCreateLocateIgnore";
+                    telemetryProperties["missingCMakeListsPopupType"] = doExperiment ? "selectFromAllCMakeLists" : "toastCreateLocateIgnore";
 
-                    const result = showCMakeLists ? changeSourceDirectory : await vscode.window.showErrorMessage(
-                        localize('missing.cmakelists', 'CMakeLists.txt was not found in the root of the folder {0}. How would you like to proceed?', `"${this.folderName}"`),
-                        quickStart, changeSourceDirectory, ignoreActivation);
+                    let result: string | undefined = changeSourceDirectory;
+                    let timedOut = false;
+                    if (!doExperiment) {
+                        const notificationResult = vscode.window.showErrorMessage(
+                            localize('missing.cmakelists', 'CMakeLists.txt was not found in the root of the folder {0}. How would you like to proceed?', `"${this.folderName}"`),
+                            quickStart, changeSourceDirectory, ignoreActivation);
+                        ({result, timedOut} = await util.timebox(notificationResult, 5 * 60 * 1000, undefined));    // 5 minute timeout
+                    }
 
                     if (result === quickStart) {
                         // Return here, since the updateFolderFullFeature set below (after the "switch")
@@ -620,7 +625,7 @@ export class CMakeTools implements api.CMakeToolsAPI {
                             placeHolder: (items.length === 1 ? localize("cmakelists.not.found", "No CMakeLists.txt was found.") : localize("select.cmakelists", "Select CMakeLists.txt"))
                         });
 
-                        if (showCMakeLists) {
+                        if (doExperiment) {
                             telemetryProperties["missingCMakeListsUserAction"] = (selection === undefined) ? "cancel-exp" : (selection.label === browse) ? "browse" : "pick";
                         } else {
                             telemetryProperties["missingCMakeListsUserAction"] = (selection === undefined) ? "cancel-ctl" : "changeSourceDirectory";
@@ -663,7 +668,7 @@ export class CMakeTools implements api.CMakeToolsAPI {
                                 }
                             }
                         } else {
-                            telemetryProperties["missingCMakeListsUserAction"] = showCMakeLists ? "cancel-browse-exp" : "cancel-browse-ctl";
+                            telemetryProperties["missingCMakeListsUserAction"] = doExperiment ? "cancel-browse-exp" : "cancel-browse-ctl";
                         }
                     } else if (result === ignoreActivation) {
                         // The user ignores the missing CMakeLists.txt file --> limit the CMake Tools extension functionality
@@ -676,7 +681,7 @@ export class CMakeTools implements api.CMakeToolsAPI {
                         await this.workspaceContext.state.setIgnoreCMakeListsMissing(true);
                     } else {
                         // "invalid" normally shouldn't happen since the popup can be closed by either dismissing it or clicking any of the three buttons.
-                        telemetryProperties["missingCMakeListsUserAction"] = (result === undefined) ? "cancel-dismiss" : "invalid";
+                        telemetryProperties["missingCMakeListsUserAction"] = (result === undefined) ? (timedOut) ? "cancel-esc" : "cancel-dismiss" : "invalid";
                     }
                 }
 

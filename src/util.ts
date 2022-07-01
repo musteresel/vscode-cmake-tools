@@ -786,3 +786,20 @@ export function getCmakeToolsTargetPopulation(): TargetPopulation {
     }
     return TargetPopulation.Internal;
 }
+
+export async function timebox<T>(promise: Thenable<T>, timeout: number, resultIfTimeout: T): Promise<{result: T; timedOut: boolean}> {
+    try {
+        const result = await new Promise<T>((resolve, reject) => {
+            const id = setTimeout(() => {
+                reject();
+            }, timeout);
+            void promise.then(t => {
+                clearTimeout(id);
+                resolve(t);
+            });
+        });
+        return {result, timedOut: false};
+    } catch {
+    }
+    return {result: resultIfTimeout, timedOut: true};
+}
